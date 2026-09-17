@@ -5,6 +5,7 @@ package typesafe
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -170,5 +171,54 @@ func TestRealClockSleepStopsOnCancelledContext(t *testing.T) {
 
 	if err := (realClock{}).Sleep(ctx, time.Hour); err == nil {
 		t.Fatal("Sleep returned nil on a cancelled context, want an error")
+	}
+}
+
+func TestFakeClockSleepAdvancesTimeWithoutWaiting(t *testing.T) {
+	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	var c clock = &fakeClock{now: base}
+
+	err := c.Sleep(context.Background(), 500*time.Millisecond)
+	if err != nil {
+		t.Errorf("Sleep returned error: %v", err)
+	}
+
+	if c.Now() != base.Add(500*time.Millisecond) {
+		t.Errorf("Now() = %v, want %v", c.Now(), base.Add(500*time.Millisecond))
+	}
+
+	// Multiple calls accumulate.
+	err = c.Sleep(context.Background(), 1*time.Second)
+	if err != nil {
+		t.Errorf("Sleep returned error: %v", err)
+	}
+
+	if c.Now() != base.Add(1500*time.Millisecond) {
+		t.Errorf("Now() = %v, want %v", c.Now(), base.Add(1500*time.Millisecond))
+	}
+}
+
+func TestFakeClockSleepRejectsCancelledContext(t *testing.T) {
+	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	f := &fakeClock{now: base}
+	var c clock = f
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := c.Sleep(ctx, time.Second)
+	if err == nil {
+		t.Fatal("Sleep returned nil on cancelled context, want an error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Sleep error = %v, want context.Canceled", err)
+	}
+
+	// fakeClock should not have advanced.
+	if f.now != base {
+		t.Errorf("fakeClock.now advanced to %v, want %v (unchanged)", f.now, base)
+	}
+	if f.slept != 0 {
+		t.Errorf("fakeClock.slept = %v, want 0", f.slept)
 	}
 }
