@@ -23,7 +23,7 @@ import (
 // Version is this SDK's version, reported in the User-Agent header.
 const Version = "0.1.0"
 
-// Documented defaults, shared with TypeSafe's other SDKs.
+// Documented defaults.
 const (
 	// DefaultBaseURL is the TypeSafe API root.
 	DefaultBaseURL = "https://api.typesafe.ai"

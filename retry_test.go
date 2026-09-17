@@ -34,7 +34,7 @@ func noJitter() float64 { return 0 }
 func fullJitter() float64 { return 1 }
 
 func TestDefaultRetryPolicyMatchesUpstream(t *testing.T) {
-	// These values mirror the documented Python and JavaScript SDK defaults.
+	// These values mirror the documented Python SDK defaults.
 	p := DefaultRetryPolicy()
 
 	if p.MaxRetries != 2 {

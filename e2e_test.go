@@ -374,9 +374,11 @@ func widestCrossSpread(a, b []map[string]float64) float64 {
 
 func TestLiveChoiceOptionOrderDoesNotMoveTheDistribution(t *testing.T) {
 	// Go maps have no insertion order and encoding/json sorts their keys, so
-	// every Choice this SDK sends is alphabetically ordered. JavaScript
-	// objects keep insertion order, so the JS SDK sends whatever the caller
-	// wrote. If Jev's distribution depends on that order, then Opts[T] as a
+	// every Choice this SDK sends is alphabetically ordered. A JavaScript
+	// caller's order can reach the wire, because JavaScript objects keep
+	// insertion order and a Go map cannot — that is a fact about the
+	// language, not a checked claim about TypeSafe's JS client, which was
+	// not read. If Jev's distribution depends on order, then Opts[T] as a
 	// map is the wrong type and must become an ordered builder.
 	//
 	// Jev is not deterministic, so ordering cannot be compared against a

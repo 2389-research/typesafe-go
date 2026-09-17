@@ -34,9 +34,9 @@ type RetryPolicy struct {
 	Budget time.Duration
 }
 
-// DefaultRetryPolicy mirrors the documented defaults of TypeSafe's Python and
-// JavaScript SDKs: two retries, 500ms doubling to 5s, 25% jitter, 30s budget,
-// retrying 408, 429, and every 5xx.
+// DefaultRetryPolicy mirrors the documented defaults of TypeSafe's Python
+// SDK: two retries, 500ms doubling to 5s, 25% jitter, 30s budget, retrying
+// 408, 429, and every 5xx.
 func DefaultRetryPolicy() RetryPolicy {
 	statuses := make([]int, 0, 102)
 	statuses = append(statuses, http.StatusRequestTimeout, http.StatusTooManyRequests)
