@@ -30,7 +30,9 @@ const (
 	// DefaultModel is the alias for the current stable Jev release.
 	DefaultModel = "jev-latest"
 	// DefaultTimeout bounds one HTTP attempt, not the whole retried call.
-	// The retry budget bounds the call.
+	// The retry budget stops the loop before a backoff that would cross
+	// it, but the attempt that follows the backoff still runs, so a call
+	// can overrun the budget by up to one attempt's timeout.
 	DefaultTimeout = 10 * time.Second
 )
 
@@ -193,6 +195,12 @@ type askResponse struct {
 // independently and in parallel; none of them can see another's answer, so
 // chain a second Ask when one judgment depends on another.
 //
+// Ask retries transient failures, and a retry can bill twice for one
+// evaluation: the client cannot tell a request that never reached the
+// server from one whose response was lost after the server already
+// processed it, so it retries either one. If you need at-most-once
+// behavior, set WithRetry to a policy with MaxRetries: 0.
+//
 // Read each answer through the question value you passed in:
 //
 //	urgent := typesafe.Noul("is_urgent", "Does this convey urgency?")
@@ -304,7 +312,9 @@ func (c *Client) attempt(ctx context.Context, method, path string, payload []byt
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return false, nil, ctxErr
 		}
-		// A connection that never landed is worth another try.
+		// The client cannot tell a request that never reached the server
+		// from one whose response was lost after the server handled it,
+		// so it retries both.
 		return true, nil, fmt.Errorf("typesafe: %s %s: %w", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()

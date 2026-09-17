@@ -396,6 +396,35 @@ func TestAskStopsOnACancelledContext(t *testing.T) {
 	}
 }
 
+func TestAskStopsWhenTheContextIsCancelledDuringBackoff(t *testing.T) {
+	var calls int
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"message":"slow down"}`)
+		// Cancel once the first response is fully written, so do() finds a
+		// cancelled context at the sleep before the second attempt instead
+		// of completing it.
+		cancel()
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL)
+	c.clock = &fakeClock{now: time.Unix(0, 0)}
+
+	_, err := c.Ask(ctx, "state", Noul("q", "?"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Ask = %v, want context.Canceled", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1: cancelling during backoff must stop before the retry", calls)
+	}
+}
+
 func TestAskFailsOnAnUnreadableSuccessBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"model": "jev-latest", "answers":`)
