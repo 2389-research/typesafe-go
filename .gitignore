@@ -3,7 +3,5 @@
 *.test
 *.out
 
-# Captured live-API responses are evidence; keep them.
-
 # Agent scratch (plans, ledgers, review packages)
 .superpowers/
