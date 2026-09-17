@@ -5,6 +5,7 @@ package typesafe
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -110,7 +111,7 @@ func retryAfter(h http.Header, now time.Time) (time.Duration, bool) {
 
 	if v := h.Get("retry-after-ms"); v != "" {
 		if ms, err := strconv.ParseFloat(v, 64); err == nil && ms >= 0 {
-			return time.Duration(ms * float64(time.Millisecond)), true
+			return clampDuration(ms, time.Millisecond), true
 		}
 	}
 
@@ -119,7 +120,7 @@ func retryAfter(h http.Header, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	if seconds, err := strconv.ParseFloat(v, 64); err == nil && seconds >= 0 {
-		return time.Duration(seconds * float64(time.Second)), true
+		return clampDuration(seconds, time.Second), true
 	}
 	if when, err := http.ParseTime(v); err == nil {
 		if d := when.Sub(now); d > 0 {
@@ -128,6 +129,22 @@ func retryAfter(h http.Header, now time.Time) (time.Duration, bool) {
 		return 0, true
 	}
 	return 0, false
+}
+
+// clampDuration converts value units of size unit to a time.Duration,
+// clamping to the largest representable value instead of overflowing.
+//
+// value comes from a server-supplied header with no upper bound. The Go
+// spec leaves float64-to-integer conversion of an out-of-range value
+// implementation-defined, and converting a large enough value straight to
+// time.Duration risks landing on a negative number — turning a server's
+// request for a long wait into an immediate retry instead.
+func clampDuration(value float64, unit time.Duration) time.Duration {
+	scaled := value * float64(unit)
+	if scaled >= float64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return time.Duration(scaled)
 }
 
 // clock isolates the package from the wall clock so retry tests run instantly.

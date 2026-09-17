@@ -6,6 +6,7 @@ package typesafe
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"testing"
 	"time"
@@ -140,6 +141,75 @@ func TestBackoffReadsRetryAfterHTTPDate(t *testing.T) {
 	p := DefaultRetryPolicy()
 	if got := p.backoff(1, h, now, noJitter); got != 7*time.Second {
 		t.Errorf("backoff = %v, want 7s", got)
+	}
+}
+
+func TestClampedDurationPassesNormalValuesThrough(t *testing.T) {
+	if got := clampDuration(1500, time.Millisecond); got != 1500*time.Millisecond {
+		t.Errorf("clampDuration(1500, ms) = %v, want 1.5s", got)
+	}
+}
+
+func TestClampedDurationCapsAbsurdValues(t *testing.T) {
+	got := clampDuration(1e25, time.Millisecond)
+	if got != time.Duration(math.MaxInt64) {
+		t.Errorf("clampDuration(1e25, ms) = %v, want the max representable Duration", got)
+	}
+	if got < 0 {
+		t.Errorf("clampDuration(1e25, ms) = %v, went negative", got)
+	}
+}
+
+func TestRetryAfterMillisecondsClampsInsteadOfOverflowingNegative(t *testing.T) {
+	// retry-after-ms is server-supplied and unbounded. Converting an
+	// absurd value straight to time.Duration overflows int64; the Go spec
+	// leaves that conversion implementation-defined, and it must never
+	// come out negative, or the server's request for a long wait turns
+	// into an immediate retry instead.
+	h := http.Header{}
+	h.Set("retry-after-ms", "1e25")
+
+	d, ok := retryAfter(h, time.Unix(0, 0))
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if d < 0 {
+		t.Errorf("retryAfter = %v, went negative instead of clamping", d)
+	}
+	if d != time.Duration(math.MaxInt64) {
+		t.Errorf("retryAfter = %v, want the max representable Duration", d)
+	}
+}
+
+func TestRetryAfterSecondsClampsInsteadOfOverflowingNegative(t *testing.T) {
+	// Same overflow risk as retry-after-ms, for the standard Retry-After
+	// seconds form.
+	h := http.Header{}
+	h.Set("Retry-After", "1e25")
+
+	d, ok := retryAfter(h, time.Unix(0, 0))
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if d < 0 {
+		t.Errorf("retryAfter = %v, went negative instead of clamping", d)
+	}
+	if d != time.Duration(math.MaxInt64) {
+		t.Errorf("retryAfter = %v, want the max representable Duration", d)
+	}
+}
+
+func TestRetryAfterHTTPDateInThePastMeansRetryImmediately(t *testing.T) {
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	h := http.Header{}
+	h.Set("Retry-After", now.Add(-7*time.Second).Format(http.TimeFormat))
+
+	d, ok := retryAfter(h, now)
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if d != 0 {
+		t.Errorf("retryAfter = %v, want 0 (retry immediately) for a past date", d)
 	}
 }
 
