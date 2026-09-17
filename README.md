@@ -4,7 +4,7 @@ A Go client for the [TypeSafe](https://typesafe.ai) System One API. Zero
 dependencies outside the standard library.
 
 System One answers questions about content with a typed judgment and a
-calibrated probability instead of generating text you then have to parse.
+probability instead of generating text you then have to parse.
 
 ```bash
 go get github.com/2389-research/typesafe-go

@@ -4,9 +4,9 @@
 // Package typesafe is a client for the TypeSafe System One API.
 //
 // System One answers questions about content with a typed judgment and a
-// calibrated probability instead of generating text you then have to parse.
-// Ask three questions about a support ticket and you get back a number, an
-// option, and a rating. No JSON mode, no retry loop around malformed output.
+// probability instead of generating text you then have to parse. Ask three
+// questions about a support ticket and you get back a number, an option,
+// and a rating. No JSON mode, no retry loop around malformed output.
 //
 // # Getting started
 //
