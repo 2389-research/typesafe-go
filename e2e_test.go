@@ -104,11 +104,16 @@ func TestLiveTriage(t *testing.T) {
 	}
 	t.Logf("department = %s, confidence %.3f, %v", assignment.Value, assignment.Confidence, assignment.Probabilities)
 
-	// The upstream docs publish this exact ticket with "choice": "technical"
-	// at 0.85, so that is what the SDK should see. If this fails, the finding
-	// is that the SDK and the docs disagree — report it and ask before
-	// touching the assertion. Widening it to make a live test pass would hide
-	// exactly what this suite exists to catch.
+	// The upstream API reference (api.md) uses this exact ticket as the
+	// request example for POST /v1/systemone (api.md:153), and its example
+	// response (api.md:253-264) carries "choice": "technical" with
+	// probabilities {billing: 0.08, technical: 0.85, sales: 0.07}. That is a
+	// documented example, not a guarantee of live model output — which is
+	// exactly why a failure here is a finding to report, not an assertion to
+	// loosen. If this fails, the finding is that the SDK and the docs
+	// disagree — report it and ask before touching the assertion. Widening
+	// it to make a live test pass would hide exactly what this suite exists
+	// to catch.
 	if assignment.Value != technical {
 		t.Errorf("department = %q, want %q", assignment.Value, technical)
 	}
