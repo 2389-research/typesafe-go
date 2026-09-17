@@ -1,0 +1,10 @@
+# Build output
+/dist/
+*.test
+*.out
+
+# Captured live-API responses are evidence; keep them.
+!testdata/
+
+# Agent scratch (plans, ledgers, review packages)
+.superpowers/

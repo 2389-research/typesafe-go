@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ABOUTME: Canonical verification gate for typesafe-go.
+# ABOUTME: Formatting, vet, lint, and the race-enabled test suite.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+fail=0
+step() { printf '\n=== %s ===\n' "$1"; }
+
+step "gofmt"
+unformatted=$(gofmt -l . || true)
+if [ -n "$unformatted" ]; then
+  echo "not gofmt-clean:"
+  echo "$unformatted"
+  fail=1
+fi
+
+step "go vet"
+go vet ./... || fail=1
+
+step "golangci-lint"
+if command -v golangci-lint >/dev/null 2>&1; then
+  golangci-lint run ./... || fail=1
+else
+  echo "golangci-lint not installed; skipping (install: brew install golangci-lint)"
+fi
+
+step "go test -race"
+go test -race ./... || fail=1
+
+if [ -n "${TYPESAFE_API_KEY:-}" ]; then
+  step "go test -race -tags=e2e (live API)"
+  go test -race -tags=e2e ./... || fail=1
+else
+  step "live API tests"
+  echo "TYPESAFE_API_KEY unset; live tests not run"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '\ncheck FAILED\n'
+  exit 1
+fi
+printf '\ncheck passed\n'
