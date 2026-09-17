@@ -176,3 +176,6 @@ probe (see `gotchas.md`), run deliberately and on its own:
 TYPESAFE_API_KEY=sk-... go test -tags=e2e ./... -run TestLiveChoiceOptionOrder -v
 ```
 
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright 2389 Research, Inc.
