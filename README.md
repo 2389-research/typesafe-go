@@ -168,5 +168,11 @@ TYPESAFE_API_KEY=sk-... ./scripts/check      # adds live API tests
 ```
 
 Live tests are behind the `e2e` build tag and skip without a key. They cost
-roughly a thousandth of a cent per call.
+roughly a thousandth of a cent per call. Even with a key set, `./scripts/check`
+excludes `TestLiveChoiceOptionOrderDoesNotMoveTheDistribution`: a six-call
+probe (see `gotchas.md`), run deliberately and on its own:
+
+```bash
+TYPESAFE_API_KEY=sk-... go test -tags=e2e ./... -run TestLiveChoiceOptionOrder -v
+```
 

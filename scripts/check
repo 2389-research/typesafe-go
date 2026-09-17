@@ -31,7 +31,12 @@ go test -race ./... || fail=1
 
 if [ -n "${TYPESAFE_API_KEY:-}" ]; then
   step "go test -race -tags=e2e (live API)"
-  go test -race -tags=e2e ./... || fail=1
+  go test -race -tags=e2e ./... -skip TestLiveChoiceOptionOrder || fail=1
+  echo
+  echo "Skipped TestLiveChoiceOptionOrderDoesNotMoveTheDistribution: it spends six"
+  echo "billed API calls and is a deliberate, separately run probe, not part of"
+  echo "this gate. Run it on its own with:"
+  echo "  TYPESAFE_API_KEY=sk-... go test -tags=e2e ./... -run TestLiveChoiceOptionOrder -v"
 else
   step "live API tests"
   echo "TYPESAFE_API_KEY unset; live tests not run"
