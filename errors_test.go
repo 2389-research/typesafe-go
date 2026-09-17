@@ -1,3 +1,6 @@
+// ABOUTME: Verifies that newError maps HTTP status codes onto sentinel errors.
+// ABOUTME: Also covers raw body preservation and best-effort message extraction.
+
 package typesafe
 
 import (
