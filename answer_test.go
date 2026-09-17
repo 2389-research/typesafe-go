@@ -190,3 +190,54 @@ func TestSeparateHandlesReadSeparateAnswers(t *testing.T) {
 		t.Errorf("got %v and %q, want 0.92 and technical", u, d.Value)
 	}
 }
+
+func TestRawAnswerReturnsTheStoredBytes(t *testing.T) {
+	res := resultWith(t, "is_urgent", `{"type":"noul","noul":0.92}`)
+
+	raw, err := res.RawAnswer("is_urgent")
+	if err != nil {
+		t.Fatalf("RawAnswer: %v", err)
+	}
+	if string(raw) != `{"type":"noul","noul":0.92}` {
+		t.Errorf("RawAnswer = %s, want the exact stored bytes", raw)
+	}
+}
+
+func TestRawAnswerHandsBackACopy(t *testing.T) {
+	// A caller must not be able to reach into the Result and corrupt it:
+	// mutating the returned slice has to stay on the caller's side.
+	res := resultWith(t, "is_urgent", `{"type":"noul","noul":0.92}`)
+
+	raw, err := res.RawAnswer("is_urgent")
+	if err != nil {
+		t.Fatalf("RawAnswer: %v", err)
+	}
+	copy(raw, []byte(`{"type":"noul","noul":0.50}`))
+
+	again, err := res.RawAnswer("is_urgent")
+	if err != nil {
+		t.Fatalf("RawAnswer again: %v", err)
+	}
+	if string(again) != `{"type":"noul","noul":0.92}` {
+		t.Errorf("stored answer changed to %s; the caller mutated shared state", again)
+	}
+
+	// The typed reader must be unaffected too.
+	q := Noul("is_urgent", "?")
+	p, err := q.From(res)
+	if err != nil || p != 0.92 {
+		t.Errorf("From after caller mutation = (%v, %v), want 0.92 and no error", p, err)
+	}
+}
+
+func TestRawAnswerRejectsUnknownAndNil(t *testing.T) {
+	res := resultWith(t, "is_urgent", `{"type":"noul","noul":0.92}`)
+
+	if _, err := res.RawAnswer("missing"); !errors.Is(err, ErrNoAnswer) {
+		t.Errorf("RawAnswer(missing) = %v, want ErrNoAnswer", err)
+	}
+	var nilResult *Result
+	if _, err := nilResult.RawAnswer("is_urgent"); !errors.Is(err, ErrNoAnswer) {
+		t.Errorf("RawAnswer on nil = %v, want ErrNoAnswer", err)
+	}
+}

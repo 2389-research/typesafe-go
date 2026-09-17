@@ -52,6 +52,28 @@ func (r *Result) rawAnswer(id, want string) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// RawAnswer returns the exact wire bytes the API sent for one answer,
+// keyed by question id, with no decoding or type checking applied. The
+// caller owns the returned copy: mutating it cannot affect the Result, so
+// raw answer evidence can be retained and logged without sharing mutable
+// state with the typed readers.
+//
+// This is the supported way to keep exact raw answer evidence — the bytes
+// the API returned, not a re-encoding of them. A question id the response
+// did not carry reports ErrNoAnswer.
+func (r *Result) RawAnswer(id string) (json.RawMessage, error) {
+	if r == nil {
+		return nil, fmt.Errorf("%w: %q (nil result)", ErrNoAnswer, id)
+	}
+	raw, ok := r.answers[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrNoAnswer, id)
+	}
+	out := make(json.RawMessage, len(raw))
+	copy(out, raw)
+	return out, nil
+}
+
 // From reads this question's answer: the probability of yes, from 0 to 1.
 //
 // A Noul carries no confidence field. The probability is the whole answer:
