@@ -293,12 +293,17 @@ func TestLiveUnprocessableBody(t *testing.T) {
 }
 
 // postRaw sends a hand-built request body, bypassing the SDK, and returns the
-// probability distribution for the named question.
+// probability distribution for the named question. It fails the test rather
+// than hand back an unusable sample: a missing question id or a reshaped
+// response both decode to a nil probabilities map with no error from
+// encoding/json, and spread would read that nil map as perfect agreement
+// instead of as no data at all. Requiring the exact option keys closes that
+// hole.
 //
 // The SDK cannot express this test: Opts[T] is a Go map, and encoding/json
 // sorts map keys, so every Choice the SDK sends arrives alphabetically
 // ordered. Answering whether that matters requires raw JSON.
-func postRaw(t *testing.T, key, body, questionID string) map[string]float64 {
+func postRaw(t *testing.T, key, body, questionID string, wantOptions []string) map[string]float64 {
 	t.Helper()
 
 	status, raw := postRawResponse(t, key, body)
@@ -314,7 +319,17 @@ func postRaw(t *testing.T, key, body, questionID string) map[string]float64 {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decoding %s: %v", raw, err)
 	}
-	return decoded.Answers[questionID].Probabilities
+
+	probabilities := decoded.Answers[questionID].Probabilities
+	if len(probabilities) != len(wantOptions) {
+		t.Fatalf("question %q returned probabilities %v, want exactly %v", questionID, probabilities, wantOptions)
+	}
+	for _, option := range wantOptions {
+		if _, ok := probabilities[option]; !ok {
+			t.Fatalf("question %q probabilities %v missing option %q", questionID, probabilities, option)
+		}
+	}
+	return probabilities
 }
 
 // spread is the largest per-option difference between two distributions.
@@ -328,6 +343,35 @@ func spread(a, b map[string]float64) float64 {
 	return widest
 }
 
+// widestSpread is the largest spread between any two draws in the same set —
+// the model's own run-to-run noise at this sample size, measured over every
+// pair in the set rather than a single arbitrary pair.
+func widestSpread(draws []map[string]float64) float64 {
+	var widest float64
+	for i := range draws {
+		for j := i + 1; j < len(draws); j++ {
+			if d := spread(draws[i], draws[j]); d > widest {
+				widest = d
+			}
+		}
+	}
+	return widest
+}
+
+// widestCrossSpread is the largest spread between a draw from a and a draw
+// from b, over every such pair — not just one arbitrarily chosen pair.
+func widestCrossSpread(a, b []map[string]float64) float64 {
+	var widest float64
+	for _, x := range a {
+		for _, y := range b {
+			if d := spread(x, y); d > widest {
+				widest = d
+			}
+		}
+	}
+	return widest
+}
+
 func TestLiveChoiceOptionOrderDoesNotMoveTheDistribution(t *testing.T) {
 	// Go maps have no insertion order and encoding/json sorts their keys, so
 	// every Choice this SDK sends is alphabetically ordered. JavaScript
@@ -336,12 +380,15 @@ func TestLiveChoiceOptionOrderDoesNotMoveTheDistribution(t *testing.T) {
 	// map is the wrong type and must become an ordered builder.
 	//
 	// Jev is not deterministic, so ordering cannot be compared against a
-	// single pair of calls. This measures same-order variation first and
-	// judges the cross-order gap against it.
+	// single pair of calls. This draws three samples per ordering, measures
+	// same-order noise over every same-order pair (six pairs total), and
+	// judges the widest cross-order gap — over every cross-order pair, nine
+	// in total — against it.
 	key := apiKey(t)
 
 	const forwardOptions = `"billing":"Payments, invoicing, refunds","technical":"Bugs, outages, integrations","sales":"Pricing, upgrades, new accounts"`
 	const reverseOptions = `"sales":"Pricing, upgrades, new accounts","technical":"Bugs, outages, integrations","billing":"Payments, invoicing, refunds"`
+	wantOptions := []string{string(billing), string(technical), string(sales)}
 
 	build := func(options string) string {
 		return `{"state":"` + ticket + `","model":"jev-latest","questions":{` +
@@ -349,23 +396,32 @@ func TestLiveChoiceOptionOrderDoesNotMoveTheDistribution(t *testing.T) {
 			options + `}}}}`
 	}
 
-	forwardA := postRaw(t, key, build(forwardOptions), "department")
-	forwardB := postRaw(t, key, build(forwardOptions), "department")
-	reverseA := postRaw(t, key, build(reverseOptions), "department")
-	reverseB := postRaw(t, key, build(reverseOptions), "department")
+	forward := make([]map[string]float64, 3)
+	for i := range forward {
+		forward[i] = postRaw(t, key, build(forwardOptions), "department", wantOptions)
+	}
+	reverse := make([]map[string]float64, 3)
+	for i := range reverse {
+		reverse[i] = postRaw(t, key, build(reverseOptions), "department", wantOptions)
+	}
 
-	t.Logf("forward A: %v", forwardA)
-	t.Logf("forward B: %v", forwardB)
-	t.Logf("reverse A: %v", reverseA)
-	t.Logf("reverse B: %v", reverseB)
+	for i, d := range forward {
+		t.Logf("forward %d: %v", i+1, d)
+	}
+	for i, d := range reverse {
+		t.Logf("reverse %d: %v", i+1, d)
+	}
 
-	sameOrder := math.Max(spread(forwardA, forwardB), spread(reverseA, reverseB))
-	crossOrder := math.Max(spread(forwardA, reverseA), spread(forwardB, reverseB))
+	sameOrder := math.Max(widestSpread(forward), widestSpread(reverse))
+	crossOrder := widestCrossSpread(forward, reverse)
 	t.Logf("same-order spread %.4f, cross-order spread %.4f", sameOrder, crossOrder)
 
-	// A cross-order gap inside the noise floor means order does not matter.
-	// The 0.05 floor keeps a perfectly deterministic model from failing on
-	// a rounding difference.
+	// A cross-order gap inside the noise floor means no order effect showed
+	// up above the model's own noise at this sample size — it does not prove
+	// order is irrelevant. Neither the 3x multiplier nor the 0.05 floor is
+	// derived from measured variance; both are a screening threshold picked
+	// for this check. See gotchas.md for what a pass here does and does not
+	// establish.
 	limit := math.Max(sameOrder*3, 0.05)
 	if crossOrder > limit {
 		t.Errorf("option order moved the distribution: cross-order spread %.4f exceeds %.4f.\n"+
