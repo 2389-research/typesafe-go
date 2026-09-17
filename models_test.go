@@ -5,6 +5,7 @@ package typesafe
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -65,7 +66,11 @@ func TestModelsPropagatesAPIErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := testClient(t, srv.URL).Models(context.Background()); err == nil {
+	_, err := testClient(t, srv.URL).Models(context.Background())
+	if err == nil {
 		t.Fatal("Models succeeded on a 401, want an error")
+	}
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("err = %v, want errors.Is(err, ErrUnauthorized)", err)
 	}
 }
