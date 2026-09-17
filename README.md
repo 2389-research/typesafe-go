@@ -169,8 +169,12 @@ TYPESAFE_API_KEY=sk-... ./scripts/check      # adds live API tests
 
 Live tests are behind the `e2e` build tag and skip without a key. They cost
 roughly a thousandth of a cent per call. Even with a key set, `./scripts/check`
-excludes `TestLiveChoiceOptionOrderDoesNotMoveTheDistribution`: a six-call
-probe (see `gotchas.md`), run deliberately and on its own:
+excludes `TestLiveChoiceOptionOrderDoesNotMoveTheDistribution`: it spends six
+billed calls checking whether the order of a Choice's options moves the answer
+distribution. `Opts[T]` is a Go map and `encoding/json` sorts map keys, so this
+SDK sends options alphabetically whatever order you wrote them in. If that
+turns out to matter, `Opts[T]` has to become an ordered type. The probe has
+not been run yet. Run it on its own:
 
 ```bash
 TYPESAFE_API_KEY=sk-... go test -tags=e2e ./... -run TestLiveChoiceOptionOrder -v

@@ -427,12 +427,11 @@ func TestLiveChoiceOptionOrderDoesNotMoveTheDistribution(t *testing.T) {
 	// up above the model's own noise at this sample size — it does not prove
 	// order is irrelevant. Neither the 3x multiplier nor the 0.05 floor is
 	// derived from measured variance; both are a screening threshold picked
-	// for this check. See gotchas.md for what a pass here does and does not
-	// establish.
+	// for this check.
 	limit := math.Max(sameOrder*3, 0.05)
 	if crossOrder > limit {
 		t.Errorf("option order moved the distribution: cross-order spread %.4f exceeds %.4f.\n"+
-			"Opts[T] must become an ordered type before tagging a release; see gotchas.md.",
+			"Opts[T] must become an ordered type before tagging a release.",
 			crossOrder, limit)
 	}
 }

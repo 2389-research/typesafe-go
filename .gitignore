@@ -5,3 +5,8 @@
 
 # Agent scratch (plans, ledgers, review packages)
 .superpowers/
+
+# Agent working files — kept on disk, out of the published repo
+/CLAUDE.md
+/gotchas.md
+/docs/superpowers/
