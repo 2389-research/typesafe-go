@@ -20,6 +20,9 @@ func TestErrorMatchesSentinelsByStatus(t *testing.T) {
 		{529, ErrOverloaded},
 		{http.StatusInternalServerError, ErrServer},
 		{http.StatusBadGateway, ErrServer},
+		{528, ErrServer},
+		{530, ErrServer},
+		{599, ErrServer},
 	}
 
 	for _, tc := range cases {

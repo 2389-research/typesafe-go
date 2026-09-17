@@ -223,6 +223,26 @@ func TestValidateRejectsScoreWithOneLevel(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsScoreWithTwoLevels(t *testing.T) {
+	// Two is the boundary TestValidateRejectsScoreWithOneLevel tests from
+	// the other side.
+	q := Score("frustration", "How frustrated?", "Calm", "Angry")
+	if err := q.validate(); err != nil {
+		t.Errorf("validate = %v, want nil", err)
+	}
+}
+
+func TestValidateAcceptsChoiceWithOneOption(t *testing.T) {
+	// TestValidateRejectsEmptyChoice tests the boundary from the other
+	// side: zero options is rejected, one is the smallest accepted set.
+	type dept string
+
+	q := Choice[dept]("department", "Which team?", Opts[dept]{"billing": nil})
+	if err := q.validate(); err != nil {
+		t.Errorf("validate = %v, want nil", err)
+	}
+}
+
 func TestQuestionsReportTheirIDs(t *testing.T) {
 	type dept string
 

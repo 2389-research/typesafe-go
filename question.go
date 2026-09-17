@@ -10,11 +10,16 @@ import (
 )
 
 // Entry is any JSON-encodable value the API accepts where structure is
-// allowed: a string, an object, an array, or null.
+// allowed: a string, an object, or an array.
 //
 // Instructions, Choice option descriptions, Score level descriptions, and
 // Noul true/false criteria all take this shape. Structured entries let you
 // hand the model a rubric instead of a sentence.
+//
+// Upstream documents null as valid only for a Choice option's description
+// (criteria is map<string, string | null>: null means the option needs no
+// extra detail). Nothing in the docs says null is valid for Instructions,
+// Score levels, or Noul true/false criteria.
 type Entry = any
 
 // Question is one typed judgment in a request.

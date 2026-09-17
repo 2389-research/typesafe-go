@@ -6,6 +6,7 @@ package typesafe
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -140,6 +141,29 @@ func TestScoreFromRejectsNonNumericLevelKeys(t *testing.T) {
 
 	if _, err := q.From(res); err == nil {
 		t.Fatal("From succeeded on a non-numeric legend key, want an error")
+	}
+}
+
+func TestScoreFromRejectsNonNumericProbabilityKeys(t *testing.T) {
+	// Legend keys are valid here so the loop reaches the Probabilities
+	// conversion, the branch this test targets, rather than failing
+	// earlier on the Legend conversion this same fixture would also fail
+	// if its legend keys were non-numeric.
+	q := Score("frustration", "How frustrated?", "Calm", "Angry")
+	res := resultWith(t, "frustration", `{
+	  "type": "score",
+	  "score": 1.0,
+	  "legend": {"0": "Calm", "1": "Angry"},
+	  "probabilities": {"low": 1.0},
+	  "confidence": 0.5
+	}`)
+
+	_, err := q.From(res)
+	if err == nil {
+		t.Fatal("From succeeded on a non-numeric probability key, want an error")
+	}
+	if !strings.Contains(err.Error(), "probability") {
+		t.Errorf("err = %q, want it to mention the probability key", err)
 	}
 }
 
