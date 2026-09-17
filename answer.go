@@ -1,0 +1,163 @@
+// ABOUTME: Typed answers and the Result that holds them until a handle reads one.
+// ABOUTME: Answers decode lazily, so callers pay only for what they actually read.
+
+package typesafe
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+)
+
+// Usage reports token consumption for one request. TypeSafe bills input
+// tokens only.
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// Result holds the answers to one Ask.
+//
+// Read an answer through the question value that asked it — urgent.From(res)
+// — rather than by key. The handle knows its own id and answer type, so a
+// mismatched read will not compile.
+type Result struct {
+	// Model is the model that performed the evaluation. When you send an
+	// alias like jev-latest, this is the concrete version it resolved to.
+	Model string
+	Usage Usage
+
+	answers map[string]json.RawMessage
+}
+
+// rawAnswer finds one answer and checks its type tag before any decoding.
+func (r *Result) rawAnswer(id, want string) (json.RawMessage, error) {
+	if r == nil {
+		return nil, fmt.Errorf("%w: %q (nil result)", ErrNoAnswer, id)
+	}
+	raw, ok := r.answers[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrNoAnswer, id)
+	}
+
+	var tag struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &tag); err != nil {
+		return nil, fmt.Errorf("typesafe: decoding answer %q: %w", id, err)
+	}
+	if tag.Type != want {
+		return nil, fmt.Errorf("%w: answer %q is %q, wanted %q", ErrWrongType, id, tag.Type, want)
+	}
+	return raw, nil
+}
+
+// From reads this question's answer: the probability of yes, from 0 to 1.
+//
+// A Noul carries no confidence field. The probability is the whole answer:
+// 0.5 means the model is genuinely torn, not that it is unsure.
+func (q NoulQuestion) From(r *Result) (float64, error) {
+	raw, err := r.rawAnswer(q.id, "noul")
+	if err != nil {
+		return 0, err
+	}
+	var answer struct {
+		Noul float64 `json:"noul"`
+	}
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		return 0, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
+	}
+	return answer.Noul, nil
+}
+
+// ChoiceAnswer is one Choice result, in the caller's own option type.
+type ChoiceAnswer[T ~string] struct {
+	// Value is the highest-probability option.
+	Value T
+	// Probabilities maps every option to its probability. They sum to 1.
+	Probabilities map[T]float64
+	// Confidence is how certain the model is, derived from Probabilities.
+	Confidence float64
+}
+
+// From reads this question's answer, typed as the option type you declared.
+func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
+	var out ChoiceAnswer[T]
+
+	raw, err := r.rawAnswer(q.id, "choice")
+	if err != nil {
+		return out, err
+	}
+	var answer struct {
+		Choice        string             `json:"choice"`
+		Probabilities map[string]float64 `json:"probabilities"`
+		Confidence    float64            `json:"confidence"`
+	}
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		return out, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
+	}
+
+	out.Value = T(answer.Choice)
+	out.Confidence = answer.Confidence
+	out.Probabilities = make(map[T]float64, len(answer.Probabilities))
+	for option, p := range answer.Probabilities {
+		out.Probabilities[T(option)] = p
+	}
+	return out, nil
+}
+
+// ScoreAnswer is one Score result.
+type ScoreAnswer struct {
+	// Value is probability-weighted across the levels and can land between
+	// two of them: 1.6 sits closer to level 2 than to level 1.
+	Value float64
+	// Legend maps each level index back to the description you supplied.
+	Legend map[int]string
+	// Probabilities maps each level index to its probability. They sum to 1.
+	Probabilities map[int]float64
+	// Confidence is how certain the model is, derived from Probabilities.
+	Confidence float64
+}
+
+// From reads this question's answer, with the wire format's string level keys
+// converted back to the integer indexes you passed levels in.
+func (q ScoreQuestion) From(r *Result) (ScoreAnswer, error) {
+	var out ScoreAnswer
+
+	raw, err := r.rawAnswer(q.id, "score")
+	if err != nil {
+		return out, err
+	}
+	var answer struct {
+		Score         float64            `json:"score"`
+		Legend        map[string]string  `json:"legend"`
+		Probabilities map[string]float64 `json:"probabilities"`
+		Confidence    float64            `json:"confidence"`
+	}
+	if err := json.Unmarshal(raw, &answer); err != nil {
+		return out, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
+	}
+
+	out.Value = answer.Score
+	out.Confidence = answer.Confidence
+
+	out.Legend = make(map[int]string, len(answer.Legend))
+	for key, description := range answer.Legend {
+		level, err := strconv.Atoi(key)
+		if err != nil {
+			return ScoreAnswer{}, fmt.Errorf("typesafe: answer %q has non-numeric legend key %q", q.id, key)
+		}
+		out.Legend[level] = description
+	}
+
+	out.Probabilities = make(map[int]float64, len(answer.Probabilities))
+	for key, p := range answer.Probabilities {
+		level, err := strconv.Atoi(key)
+		if err != nil {
+			return ScoreAnswer{}, fmt.Errorf("typesafe: answer %q has non-numeric probability key %q", q.id, key)
+		}
+		out.Probabilities[level] = p
+	}
+
+	return out, nil
+}
