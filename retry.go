@@ -67,6 +67,8 @@ func (p RetryPolicy) Retryable(status int) bool {
 
 // backoff returns the delay before the given attempt, counting the first
 // retry as attempt 1. A usable Retry-After header wins over the schedule.
+// jitter must return a value in [0,1); a negative return would push the
+// delay above BackoffMax, the opposite of what jitter is for.
 func (p RetryPolicy) backoff(attempt int, h http.Header, now time.Time, jitter func() float64) time.Duration {
 	if p.RespectRetryAfter {
 		if d, ok := retryAfter(h, now); ok {
