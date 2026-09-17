@@ -74,8 +74,8 @@ func (e *Error) Is(target error) bool {
 //
 // The message probe checks the keys most APIs use. It is a convenience, not a
 // contract: when it finds nothing, Body still holds the whole response.
-// Task 8 of the implementation plan captures real error bodies from the live
-// API so this guess can be replaced with the actual schema.
+// The live tests capture real error bodies from the API so this guess can
+// be replaced with the actual schema.
 func newError(status int, body []byte) *Error {
 	e := &Error{StatusCode: status, Body: body}
 

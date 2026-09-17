@@ -279,7 +279,7 @@ func TestLiveUnprocessableBody(t *testing.T) {
 	// enforces that client-side, so a 422 cannot be provoked through the
 	// public API. This posts the malformed body directly to learn the error
 	// schema. The SDK's own 422 handling is covered hermetically by
-	// TestAskDoesNotRetryValidationFailures in Task 5.
+	// TestAskDoesNotRetryValidationFailures.
 	key := apiKey(t)
 
 	const malformed = `{"state":"hello","model":"jev-latest",` +
