@@ -118,6 +118,28 @@ func TestChoiceAllowsNilOptionDescription(t *testing.T) {
 	}
 }
 
+func TestChoiceOptionsAreClonedFromTheCaller(t *testing.T) {
+	// question.go's own ABOUTME says question values are immutable handles.
+	// A caller who mutates the map they passed in after construction must
+	// not change what the question sends.
+	type dept string
+
+	options := Opts[dept]{"billing": "Payments, invoicing, refunds"}
+	q := Choice[dept]("department", "Which team?", options)
+
+	options["billing"] = "mutated after construction"
+	options["technical"] = "added after construction"
+
+	got, err := json.Marshal(q.payload())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	want := `{"type":"choice","instructions":"Which team?","criteria":{"billing":"Payments, invoicing, refunds"}}`
+	if !jsonEqual(t, got, []byte(want)) {
+		t.Errorf("payload changed after the caller mutated its map\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestScoreEncodesLevelsAsOrderedArray(t *testing.T) {
 	q := Score("frustration", "How frustrated is the customer?",
 		"Calm", "Frustrated", "Very angry")
@@ -134,6 +156,29 @@ func TestScoreEncodesLevelsAsOrderedArray(t *testing.T) {
 	}`
 	if !jsonEqual(t, got, []byte(want)) {
 		t.Errorf("payload\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestScoreLevelsAreClonedFromTheCaller(t *testing.T) {
+	// Passing a slice to a variadic parameter with "..." hands Score the
+	// caller's own backing array. Score must copy it so a later mutation
+	// of the caller's slice does not change what the question sends.
+	levels := []Entry{"Calm", "Frustrated", "Very angry"}
+	q := Score("frustration", "How frustrated?", levels...)
+
+	levels[0] = "mutated after construction"
+
+	got, err := json.Marshal(q.payload())
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	want := `{
+	  "type": "score",
+	  "instructions": "How frustrated?",
+	  "criteria": ["Calm", "Frustrated", "Very angry"]
+	}`
+	if !jsonEqual(t, got, []byte(want)) {
+		t.Errorf("payload changed after the caller mutated its slice\n got: %s\nwant: %s", got, want)
 	}
 }
 

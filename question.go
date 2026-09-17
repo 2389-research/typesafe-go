@@ -3,7 +3,11 @@
 
 package typesafe
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+	"slices"
+)
 
 // Entry is any JSON-encodable value the API accepts where structure is
 // allowed: a string, an object, an array, or null.
@@ -84,7 +88,7 @@ type ChoiceQuestion[T ~string] struct {
 // Choice picks one option from a set you define. Declare T as your own string
 // type and the compiler will reject any option the API could not return.
 func Choice[T ~string](id string, instructions Entry, options Opts[T]) ChoiceQuestion[T] {
-	return ChoiceQuestion[T]{id: id, instructions: instructions, options: options}
+	return ChoiceQuestion[T]{id: id, instructions: instructions, options: maps.Clone(options)}
 }
 
 // ID is the key this question's answer comes back under.
@@ -116,7 +120,7 @@ type ScoreQuestion struct {
 // probability-weighted across them and can land between two levels.
 // The API requires at least two.
 func Score(id string, instructions Entry, levels ...Entry) ScoreQuestion {
-	return ScoreQuestion{id: id, instructions: instructions, levels: levels}
+	return ScoreQuestion{id: id, instructions: instructions, levels: slices.Clone(levels)}
 }
 
 // ID is the key this question's answer comes back under.
