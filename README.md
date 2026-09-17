@@ -170,6 +170,3 @@ TYPESAFE_API_KEY=sk-... ./scripts/check      # adds live API tests
 Live tests are behind the `e2e` build tag and skip without a key. They cost
 roughly a thousandth of a cent per call.
 
-## License
-
-MIT
