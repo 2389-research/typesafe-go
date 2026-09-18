@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -314,6 +315,97 @@ func TestAskRetriesRateLimitAndHonorsRetryAfter(t *testing.T) {
 	}
 	if fake.slept != 1200*time.Millisecond {
 		t.Errorf("slept %v, want the server's 1.2s", fake.slept)
+	}
+}
+
+func TestWithRetryMaxRetriesZeroSendsExactlyOneRequest(t *testing.T) {
+	// typesafe.go documents WithRetry(RetryPolicy{MaxRetries: 0}) as the
+	// at-most-once switch for the double-billing behaviour: a lost response
+	// is otherwise retried, and the retry can bill twice for one evaluation.
+	// This is the only test that reaches the retry machinery through the
+	// option rather than by assigning c.retry on a built client.
+	var calls int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"message":"slow down"}`)
+	}))
+	defer srv.Close()
+
+	c, err := New(
+		WithAPIKey("test-key"),
+		WithBaseURL(srv.URL),
+		WithRetry(RetryPolicy{MaxRetries: 0}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// The fake clock makes the check independent of the backoff: with a
+	// real clock an accidental retry would sleep first, and a test that
+	// waits is a test that hides the extra request.
+	c.clock = &fakeClock{now: time.Unix(0, 0)}
+	c.jitter = noJitter
+
+	_, err = c.Ask(context.Background(), "state", Noul("q", "?"))
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("Ask = %v, want ErrRateLimited", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1: MaxRetries: 0 must mean at most one request", calls)
+	}
+}
+
+func TestWithRetryMaxRetriesZeroStopsTheDoubleBillingRetry(t *testing.T) {
+	// The scenario the Ask docs actually warn about: the server fully
+	// handled the request and the response was lost on the way back, which
+	// the client cannot tell from a request that never arrived, so it
+	// retries and can bill twice. MaxRetries: 0 is the documented
+	// at-most-once switch, and it has to hold on this path too.
+	// The handler runs on the server's goroutine, so the count is atomic:
+	// the test reads it from its own goroutine.
+	var handled atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handled.Add(1)
+		// Accept the request, then drop the connection with no response,
+		// as a proxy would after the server already processed it.
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+	}))
+	defer srv.Close()
+
+	// The default policy retries a lost response, which is what makes this
+	// a real double-billing path and not a scenario that trivially passes.
+	c := testClient(t, srv.URL)
+	c.clock = &fakeClock{now: time.Unix(0, 0)}
+	if _, err := c.Ask(context.Background(), "state", Noul("q", "?")); err == nil {
+		t.Fatal("Ask with the default policy succeeded, want a transport error")
+	}
+	if got := handled.Load(); got != 3 {
+		t.Fatalf("server saw %d requests with the default policy, want 3 (one attempt plus two retries)", got)
+	}
+
+	handled.Store(0)
+	atMostOnce, err := New(
+		WithAPIKey("test-key"),
+		WithBaseURL(srv.URL),
+		WithRetry(RetryPolicy{MaxRetries: 0}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	atMostOnce.clock = &fakeClock{now: time.Unix(0, 0)}
+	atMostOnce.jitter = noJitter
+
+	if _, err := atMostOnce.Ask(context.Background(), "state", Noul("q", "?")); err == nil {
+		t.Fatal("Ask with MaxRetries: 0 succeeded, want a transport error")
+	}
+	if got := handled.Load(); got != 1 {
+		t.Errorf("server saw %d requests, want 1: MaxRetries: 0 must not re-bill a lost response", got)
 	}
 }
 
