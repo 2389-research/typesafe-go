@@ -36,6 +36,8 @@ type Result struct {
 }
 
 // rawAnswer finds one answer and checks its type tag before any decoding.
+// The tag is the only presence check the whole answer gets: each From below
+// is responsible for rejecting a payload field its answer body omits.
 func (r *Result) rawAnswer(id, want string) (json.RawMessage, error) {
 	if r == nil {
 		return nil, fmt.Errorf("%w: %q (nil result)", ErrNoAnswer, id)
@@ -55,6 +57,13 @@ func (r *Result) rawAnswer(id, want string) (json.RawMessage, error) {
 		return nil, fmt.Errorf("%w: answer %q is %q, wanted %q", ErrWrongType, id, tag.Type, want)
 	}
 	return raw, nil
+}
+
+// missingField reports an answer body that omits a field the API documents
+// as always present. Decoding such a body into the zero value would turn a
+// truncated response into a confident judgment.
+func missingField(id, field string) error {
+	return fmt.Errorf("%w: answer %q has no %q", ErrIncompleteAnswer, id, field)
 }
 
 // RawAnswer returns the exact wire bytes the API sent for one answer,
@@ -80,6 +89,8 @@ func (r *Result) RawAnswer(id string) (json.RawMessage, error) {
 }
 
 // From reads this question's answer: the probability of yes, from 0 to 1.
+// An answer body that omits or nulls the noul field reports
+// ErrIncompleteAnswer instead of decoding to 0.
 //
 // A Noul carries no confidence field. The probability is the whole answer:
 // 0.5 means the model is genuinely torn, not that it is unsure.
@@ -89,12 +100,15 @@ func (q NoulQuestion) From(r *Result) (float64, error) {
 		return 0, err
 	}
 	var answer struct {
-		Noul float64 `json:"noul"`
+		Noul *float64 `json:"noul"`
 	}
 	if err := json.Unmarshal(raw, &answer); err != nil {
 		return 0, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
 	}
-	return answer.Noul, nil
+	if answer.Noul == nil {
+		return 0, missingField(q.id, "noul")
+	}
+	return *answer.Noul, nil
 }
 
 // ChoiceAnswer is one Choice result, in the caller's own option type.
@@ -108,6 +122,9 @@ type ChoiceAnswer[T ~string] struct {
 }
 
 // From reads this question's answer, typed as the option type you declared.
+// An answer body missing choice, probabilities, or confidence reports
+// ErrIncompleteAnswer; an empty probabilities map counts as missing, since
+// the API documents it as summing to 1.
 func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
 	var out ChoiceAnswer[T]
 
@@ -116,16 +133,25 @@ func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
 		return out, err
 	}
 	var answer struct {
-		Choice        string             `json:"choice"`
+		Choice        *string            `json:"choice"`
 		Probabilities map[string]float64 `json:"probabilities"`
-		Confidence    float64            `json:"confidence"`
+		Confidence    *float64           `json:"confidence"`
 	}
 	if err := json.Unmarshal(raw, &answer); err != nil {
 		return out, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
 	}
+	if answer.Choice == nil {
+		return out, missingField(q.id, "choice")
+	}
+	if len(answer.Probabilities) == 0 {
+		return out, missingField(q.id, "probabilities")
+	}
+	if answer.Confidence == nil {
+		return out, missingField(q.id, "confidence")
+	}
 
-	out.Value = T(answer.Choice)
-	out.Confidence = answer.Confidence
+	out.Value = T(*answer.Choice)
+	out.Confidence = *answer.Confidence
 	out.Probabilities = make(map[T]float64, len(answer.Probabilities))
 	for option, p := range answer.Probabilities {
 		out.Probabilities[T(option)] = p
@@ -147,7 +173,9 @@ type ScoreAnswer struct {
 }
 
 // From reads this question's answer, with the wire format's string level keys
-// converted back to the integer indexes you passed levels in.
+// converted back to the integer indexes you passed levels in. An answer body
+// missing score, legend, probabilities, or confidence reports
+// ErrIncompleteAnswer; empty legend or probabilities maps count as missing.
 func (q ScoreQuestion) From(r *Result) (ScoreAnswer, error) {
 	var out ScoreAnswer
 
@@ -156,17 +184,29 @@ func (q ScoreQuestion) From(r *Result) (ScoreAnswer, error) {
 		return out, err
 	}
 	var answer struct {
-		Score         float64            `json:"score"`
+		Score         *float64           `json:"score"`
 		Legend        map[string]string  `json:"legend"`
 		Probabilities map[string]float64 `json:"probabilities"`
-		Confidence    float64            `json:"confidence"`
+		Confidence    *float64           `json:"confidence"`
 	}
 	if err := json.Unmarshal(raw, &answer); err != nil {
 		return out, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
 	}
+	if answer.Score == nil {
+		return out, missingField(q.id, "score")
+	}
+	if len(answer.Legend) == 0 {
+		return out, missingField(q.id, "legend")
+	}
+	if len(answer.Probabilities) == 0 {
+		return out, missingField(q.id, "probabilities")
+	}
+	if answer.Confidence == nil {
+		return out, missingField(q.id, "confidence")
+	}
 
-	out.Value = answer.Score
-	out.Confidence = answer.Confidence
+	out.Value = *answer.Score
+	out.Confidence = *answer.Confidence
 
 	out.Legend = make(map[int]string, len(answer.Legend))
 	for key, description := range answer.Legend {

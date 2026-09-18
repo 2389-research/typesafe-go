@@ -132,6 +132,141 @@ func TestFromOnNilResultReportsMissingAnswer(t *testing.T) {
 	}
 }
 
+// TestFromRejectsTruncatedAnswers covers a response whose payload field is
+// absent or null. Zero is a meaningful answer in all three shapes — a Noul
+// of 0 is "certainly not", a confidence of 0 is no confidence, and an empty
+// option string is a real value the API could not send — so a decode into
+// the zero value would read a truncated body as a confident judgment.
+func TestFromRejectsTruncatedAnswers(t *testing.T) {
+	type dept string
+
+	tests := []struct {
+		name  string
+		read  func(*Result) error
+		raw   string
+		field string
+	}{
+		{
+			name:  "noul payload absent",
+			read:  func(r *Result) error { _, err := Noul("q", "?").From(r); return err },
+			raw:   `{"type":"noul"}`,
+			field: "noul",
+		},
+		{
+			name:  "noul payload null",
+			read:  func(r *Result) error { _, err := Noul("q", "?").From(r); return err },
+			raw:   `{"type":"noul","noul":null}`,
+			field: "noul",
+		},
+		{
+			name:  "choice option absent",
+			read:  func(r *Result) error { _, err := Choice[dept]("q", "?", Opts[dept]{"a": nil}).From(r); return err },
+			raw:   `{"type":"choice","probabilities":{"a":1},"confidence":0.9}`,
+			field: "choice",
+		},
+		{
+			name:  "choice probabilities absent",
+			read:  func(r *Result) error { _, err := Choice[dept]("q", "?", Opts[dept]{"a": nil}).From(r); return err },
+			raw:   `{"type":"choice","choice":"a","confidence":0.9}`,
+			field: "probabilities",
+		},
+		{
+			name:  "choice probabilities empty",
+			read:  func(r *Result) error { _, err := Choice[dept]("q", "?", Opts[dept]{"a": nil}).From(r); return err },
+			raw:   `{"type":"choice","choice":"a","probabilities":{},"confidence":0.9}`,
+			field: "probabilities",
+		},
+		{
+			name:  "choice confidence absent",
+			read:  func(r *Result) error { _, err := Choice[dept]("q", "?", Opts[dept]{"a": nil}).From(r); return err },
+			raw:   `{"type":"choice","choice":"a","probabilities":{"a":1}}`,
+			field: "confidence",
+		},
+		{
+			name:  "score value absent",
+			read:  func(r *Result) error { _, err := Score("q", "?", "low", "high").From(r); return err },
+			raw:   `{"type":"score","legend":{"0":"low","1":"high"},"probabilities":{"0":1},"confidence":0.5}`,
+			field: "score",
+		},
+		{
+			name:  "score legend absent",
+			read:  func(r *Result) error { _, err := Score("q", "?", "low", "high").From(r); return err },
+			raw:   `{"type":"score","score":1,"probabilities":{"0":1},"confidence":0.5}`,
+			field: "legend",
+		},
+		{
+			name:  "score probabilities absent",
+			read:  func(r *Result) error { _, err := Score("q", "?", "low", "high").From(r); return err },
+			raw:   `{"type":"score","score":1,"legend":{"0":"low"},"confidence":0.5}`,
+			field: "probabilities",
+		},
+		{
+			name:  "score probabilities empty",
+			read:  func(r *Result) error { _, err := Score("q", "?", "low", "high").From(r); return err },
+			raw:   `{"type":"score","score":1,"legend":{"0":"low"},"probabilities":{},"confidence":0.5}`,
+			field: "probabilities",
+		},
+		{
+			name:  "score confidence absent",
+			read:  func(r *Result) error { _, err := Score("q", "?", "low", "high").From(r); return err },
+			raw:   `{"type":"score","score":1,"legend":{"0":"low"},"probabilities":{"0":1}}`,
+			field: "confidence",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := resultWith(t, "q", tt.raw)
+			err := tt.read(res)
+			if !errors.Is(err, ErrIncompleteAnswer) {
+				t.Fatalf("From = %v, want ErrIncompleteAnswer", err)
+			}
+			if !strings.Contains(err.Error(), tt.field) {
+				t.Errorf("err = %q, want it to name the field %q", err, tt.field)
+			}
+		})
+	}
+}
+
+// TestFromReadsGenuineZeroValues is the counterpart to the truncation test:
+// the same fields present with zero values must decode cleanly. Tracking
+// presence must not turn a real zero into an error.
+func TestFromReadsGenuineZeroValues(t *testing.T) {
+	type dept string
+
+	noul, err := Noul("q", "?").From(resultWith(t, "q", `{"type":"noul","noul":0}`))
+	if err != nil {
+		t.Fatalf("Noul.From: %v", err)
+	}
+	if noul != 0 {
+		t.Errorf("Noul.From = %v, want 0", noul)
+	}
+
+	choice, err := Choice[dept]("q", "?", Opts[dept]{"a": nil}).
+		From(resultWith(t, "q", `{"type":"choice","choice":"a","probabilities":{"a":0},"confidence":0}`))
+	if err != nil {
+		t.Fatalf("Choice.From: %v", err)
+	}
+	if choice.Value != dept("a") || choice.Confidence != 0 {
+		t.Errorf("Choice.From = %+v, want value a and confidence 0", choice)
+	}
+	if len(choice.Probabilities) != 1 || choice.Probabilities[dept("a")] != 0 {
+		t.Errorf("Probabilities = %v, want {a: 0}", choice.Probabilities)
+	}
+
+	score, err := Score("q", "?", "low", "high").
+		From(resultWith(t, "q", `{"type":"score","score":0,"legend":{"0":"low","1":"high"},"probabilities":{"0":0,"1":0},"confidence":0}`))
+	if err != nil {
+		t.Fatalf("Score.From: %v", err)
+	}
+	if score.Value != 0 || score.Confidence != 0 {
+		t.Errorf("Score.From = %+v, want value 0 and confidence 0", score)
+	}
+	if len(score.Probabilities) != 2 {
+		t.Errorf("Probabilities = %v, want two level entries", score.Probabilities)
+	}
+}
+
 func TestScoreFromRejectsNonNumericLevelKeys(t *testing.T) {
 	q := Score("frustration", "How frustrated?", "Calm", "Angry")
 	res := resultWith(t, "frustration", `{

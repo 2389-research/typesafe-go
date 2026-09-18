@@ -80,6 +80,11 @@ The compiler cannot check the id. Two handles can share an id and disagree
 about the type behind it, and that read compiles; it fails at read time
 with `ErrWrongType` rather than decoding a zero value.
 
+`From` also checks that the answer body carries every documented payload
+field. A truncated response — one missing `noul`, or a Choice with no
+`choice` — reports `ErrIncompleteAnswer` instead of reading as a confident
+zero. A genuine zero (`"noul":0`, `"confidence":0`) still decodes.
+
 ## The three primitives
 
 | Primitive | Question | Answer |

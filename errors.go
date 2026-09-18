@@ -23,8 +23,9 @@ var (
 	ErrOverloaded    = errors.New("typesafe: overloaded")
 	ErrServer        = errors.New("typesafe: server error")
 
-	ErrNoAnswer  = errors.New("typesafe: no answer for question id")
-	ErrWrongType = errors.New("typesafe: answer type does not match question type")
+	ErrNoAnswer         = errors.New("typesafe: no answer for question id")
+	ErrWrongType        = errors.New("typesafe: answer type does not match question type")
+	ErrIncompleteAnswer = errors.New("typesafe: answer is missing a required field")
 
 	ErrNoAPIKey     = errors.New("typesafe: no API key")
 	ErrNoQuestions  = errors.New("typesafe: no questions")
