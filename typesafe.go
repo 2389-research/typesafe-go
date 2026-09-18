@@ -232,7 +232,12 @@ func (c *Client) buildAsk(state any, questions []Question) (askRequest, error) {
 	}
 
 	payloads := make(map[string]questionPayload, len(questions))
-	for _, q := range questions {
+	for i, q := range questions {
+		// A nil element — a map or loop that yielded nothing, say — would
+		// panic on q.ID(); reject it like every other bad input.
+		if q == nil {
+			return askRequest{}, fmt.Errorf("%w: index %d", ErrNilQuestion, i)
+		}
 		id := q.ID()
 		if id == "" {
 			return askRequest{}, ErrEmptyID

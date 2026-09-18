@@ -28,6 +28,7 @@ var (
 
 	ErrNoAPIKey     = errors.New("typesafe: no API key")
 	ErrNoQuestions  = errors.New("typesafe: no questions")
+	ErrNilQuestion  = errors.New("typesafe: nil question")
 	ErrEmptyID      = errors.New("typesafe: empty question id")
 	ErrDuplicateID  = errors.New("typesafe: duplicate question id")
 	ErrNoOptions    = errors.New("typesafe: choice has no options")

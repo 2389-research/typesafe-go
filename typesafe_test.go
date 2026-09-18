@@ -232,12 +232,14 @@ func TestAskRejectsBadRequestsBeforeSending(t *testing.T) {
 		name      string
 		questions []Question
 		want      error
+		wantMsg   string // checked with strings.Contains when non-empty
 	}{
-		{"no questions", nil, ErrNoQuestions},
-		{"empty id", []Question{Noul("", "?")}, ErrEmptyID},
-		{"duplicate id", []Question{Noul("q", "?"), Noul("q", "?")}, ErrDuplicateID},
-		{"choice with no options", []Question{Choice[dept]("q", "?", Opts[dept]{})}, ErrNoOptions},
-		{"score with one level", []Question{Score("q", "?", "only")}, ErrTooFewLevels},
+		{"no questions", nil, ErrNoQuestions, ""},
+		{"nil question", []Question{Noul("q", "?"), nil}, ErrNilQuestion, "index 1"},
+		{"empty id", []Question{Noul("", "?")}, ErrEmptyID, ""},
+		{"duplicate id", []Question{Noul("q", "?"), Noul("q", "?")}, ErrDuplicateID, ""},
+		{"choice with no options", []Question{Choice[dept]("q", "?", Opts[dept]{})}, ErrNoOptions, ""},
+		{"score with one level", []Question{Score("q", "?", "only")}, ErrTooFewLevels, ""},
 	}
 
 	for _, tc := range cases {
@@ -245,6 +247,9 @@ func TestAskRejectsBadRequestsBeforeSending(t *testing.T) {
 			_, err := c.Ask(context.Background(), "state", tc.questions...)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("Ask = %v, want %v", err, tc.want)
+			}
+			if tc.wantMsg != "" && !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Fatalf("Ask error = %q, want it to name %q", err.Error(), tc.wantMsg)
 			}
 		})
 	}
