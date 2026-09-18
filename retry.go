@@ -21,6 +21,8 @@ type RetryPolicy struct {
 	// time, up to BackoffMax.
 	BackoffInitial time.Duration
 	// BackoffMax caps the computed delay. Retry-After can still exceed it.
+	// Zero means no cap: the delay doubles until it saturates at the
+	// largest representable duration.
 	BackoffMax time.Duration
 	// BackoffJitter is the fraction of the delay that may be subtracted at
 	// random, spreading out a thundering herd. 0.25 means up to 25% off.
@@ -82,11 +84,23 @@ func (p RetryPolicy) backoff(attempt int, h http.Header, now time.Time, jitter f
 
 	delay := p.BackoffInitial
 	for i := 1; i < attempt; i++ {
+		if delay > math.MaxInt64/2 {
+			// Doubling again would wrap int64 negative, and a negative
+			// delay is reported as 0 below — a hot retry loop instead of
+			// a long wait. Saturate at the largest representable delay.
+			delay = math.MaxInt64
+			break
+		}
 		delay *= 2
 		if p.BackoffMax > 0 && delay >= p.BackoffMax {
 			delay = p.BackoffMax
 			break
 		}
+	}
+	// Saturation can land above a caller's cap, so enforce it once more on
+	// the way out.
+	if p.BackoffMax > 0 && delay > p.BackoffMax {
+		delay = p.BackoffMax
 	}
 
 	if p.BackoffJitter > 0 && jitter != nil {

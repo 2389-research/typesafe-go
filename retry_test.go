@@ -96,6 +96,51 @@ func TestBackoffDoublesAndCapsAtMax(t *testing.T) {
 	}
 }
 
+func TestBackoffWithoutMaxSaturatesInsteadOfOverflowing(t *testing.T) {
+	// Budget documents "zero means no cap" (retry.go), so a caller can
+	// reasonably read BackoffMax the same way and leave it zero. The
+	// doubling must then saturate at the largest representable delay
+	// instead of wrapping negative: backoff reports a negative delay as 0,
+	// turning the tail of a long retry schedule into a hot retry loop.
+	p := DefaultRetryPolicy()
+	p.BackoffMax = 0
+	now := time.Unix(0, 0)
+
+	// 500ms doubling overflows int64 well before attempt 63.
+	if got := p.backoff(63, nil, now, noJitter); got <= 0 {
+		t.Errorf("backoff(63) with BackoffMax zero = %v, want a positive delay", got)
+	}
+
+	// A caller with a high MaxRetries keeps doubling for a long time; the
+	// result must stay positive and must not shrink as attempts grow.
+	late := p.backoff(1000, nil, now, noJitter)
+	if late <= 0 {
+		t.Fatalf("backoff(1000) with BackoffMax zero = %v, want the largest positive delay", late)
+	}
+	if late < p.backoff(63, nil, now, noJitter) {
+		t.Errorf("backoff(1000) = %v is below backoff(63) = %v", late, p.backoff(63, nil, now, noJitter))
+	}
+}
+
+func TestBackoffOverflowSaturatesAtBackoffMax(t *testing.T) {
+	// With a cap set, the doubling must land on the cap rather than wrap
+	// through negative values on the way there.
+	p := DefaultRetryPolicy()
+	now := time.Unix(0, 0)
+
+	// Any cap is hit long before the doubling overflows.
+	if got := p.backoff(63, nil, now, noJitter); got != 5*time.Second {
+		t.Errorf("backoff(63) = %v, want 5s", got)
+	}
+
+	// A cap near the top of the range still has to be reached, not missed
+	// by an intermediate overflow.
+	p.BackoffMax = math.MaxInt64
+	if got := p.backoff(1000, nil, now, noJitter); got <= 0 {
+		t.Errorf("backoff(1000) with BackoffMax MaxInt64 = %v, want a positive delay", got)
+	}
+}
+
 func TestJitterOnlySubtracts(t *testing.T) {
 	// Jitter must never push a delay above the computed backoff, or a burst
 	// of clients could drift past the budget.

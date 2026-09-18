@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -528,6 +529,79 @@ func TestAskStopsWhenTheBudgetWouldBeExceeded(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("calls = %d, want 1: an hour-long wait blows the 30s budget", calls)
+	}
+}
+
+// recordingClock keeps every sleep duration rather than their sum, because a
+// long saturated schedule would overflow a running total.
+type recordingClock struct {
+	now    time.Time
+	sleeps []time.Duration
+}
+
+func (c *recordingClock) Now() time.Time { return c.now }
+
+func (c *recordingClock) Sleep(ctx context.Context, d time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	c.sleeps = append(c.sleeps, d)
+	c.now = c.now.Add(d)
+	return nil
+}
+
+func TestAskKeepsWaitingWhenBackoffMaxIsZero(t *testing.T) {
+	// Budget documents zero as "no cap", so a caller may read BackoffMax
+	// the same way and leave it zero with a high MaxRetries. The delay then
+	// doubles until it saturates; it must never wrap negative, which
+	// backoff reports as 0 and turns the tail of the schedule into a hot
+	// retry loop.
+	const retries = 70
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"message":"slow down"}`)
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL)
+	clock := &recordingClock{now: time.Unix(0, 0)}
+	c.clock = clock
+	if err := WithRetry(RetryPolicy{
+		MaxRetries:        retries,
+		BackoffInitial:    500 * time.Millisecond,
+		BackoffMax:        0,
+		BackoffJitter:     0.25,
+		Statuses:          []int{http.StatusTooManyRequests},
+		RespectRetryAfter: false,
+	})(c); err != nil {
+		t.Fatalf("WithRetry: %v", err)
+	}
+
+	if _, err := c.Ask(context.Background(), "state", Noul("q", "?")); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("Ask = %v, want ErrRateLimited", err)
+	}
+	if calls != retries+1 {
+		t.Errorf("calls = %d, want %d", calls, retries+1)
+	}
+	if len(clock.sleeps) != retries {
+		t.Fatalf("Sleep calls = %d, want %d", len(clock.sleeps), retries)
+	}
+
+	prev := time.Duration(0)
+	for i, d := range clock.sleeps {
+		if d <= 0 {
+			t.Fatalf("sleep %d = %v, want a positive delay", i, d)
+		}
+		if d < prev {
+			t.Errorf("sleep %d = %v shrank below the previous %v", i, d, prev)
+		}
+		prev = d
+	}
+	if last := clock.sleeps[len(clock.sleeps)-1]; last != time.Duration(math.MaxInt64) {
+		t.Errorf("final sleep = %v, want saturation at %v", last, time.Duration(math.MaxInt64))
 	}
 }
 
