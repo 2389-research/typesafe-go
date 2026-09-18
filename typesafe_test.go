@@ -401,6 +401,24 @@ func TestAskStopsOnACancelledContext(t *testing.T) {
 	}
 }
 
+// cancelOnSleepClock is a fakeClock that cancels the context under test when
+// do() enters its first sleep. Cancelling from the server handler instead
+// races the response: the client can observe the cancelled context while it
+// reads the 429 body, take attempt's early return, and never compute a
+// backoff at all — a different path than the one this test names.
+type cancelOnSleepClock struct {
+	fakeClock
+
+	cancel context.CancelFunc
+	sleeps int
+}
+
+func (c *cancelOnSleepClock) Sleep(ctx context.Context, d time.Duration) error {
+	c.sleeps++
+	c.cancel()
+	return c.fakeClock.Sleep(ctx, d)
+}
+
 func TestAskStopsWhenTheContextIsCancelledDuringBackoff(t *testing.T) {
 	var calls int
 
@@ -411,19 +429,19 @@ func TestAskStopsWhenTheContextIsCancelledDuringBackoff(t *testing.T) {
 		calls++
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = io.WriteString(w, `{"message":"slow down"}`)
-		// Cancel once the first response is fully written, so do() finds a
-		// cancelled context at the sleep before the second attempt instead
-		// of completing it.
-		cancel()
 	}))
 	defer srv.Close()
 
 	c := testClient(t, srv.URL)
-	c.clock = &fakeClock{now: time.Unix(0, 0)}
+	clock := &cancelOnSleepClock{fakeClock: fakeClock{now: time.Unix(0, 0)}, cancel: cancel}
+	c.clock = clock
 
 	_, err := c.Ask(ctx, "state", Noul("q", "?"))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Ask = %v, want context.Canceled", err)
+	}
+	if clock.sleeps != 1 {
+		t.Errorf("Sleep calls = %d, want 1: the cancellation must land in the backoff, not before it", clock.sleeps)
 	}
 	if calls != 1 {
 		t.Errorf("calls = %d, want 1: cancelling during backoff must stop before the retry", calls)
