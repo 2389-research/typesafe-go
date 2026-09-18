@@ -167,6 +167,59 @@ func TestScoreFromRejectsNonNumericProbabilityKeys(t *testing.T) {
 	}
 }
 
+func TestChoiceFromRejectsChoiceOutsideDeclaredOptions(t *testing.T) {
+	// The compiler checks the options the caller writes; nothing but this
+	// branch checks the one the server sends back. "maybee" would decode
+	// into a T equal to none of the caller's constants.
+	type dept string
+	const (
+		billing   dept = "billing"
+		technical dept = "technical"
+	)
+
+	q := Choice[dept]("department", "Which team?", Opts[dept]{
+		billing: nil, technical: nil,
+	})
+	res := resultWith(t, "department", `{
+	  "type": "choice",
+	  "choice": "maybee",
+	  "probabilities": {"billing": 0.5, "technical": 0.5},
+	  "confidence": 0.5
+	}`)
+
+	_, err := q.From(res)
+	if !errors.Is(err, ErrUnexpectedOption) {
+		t.Fatalf("From = %v, want ErrUnexpectedOption", err)
+	}
+	if !strings.Contains(err.Error(), `"maybee"`) {
+		t.Errorf("err = %q, want it to name the unexpected choice", err)
+	}
+}
+
+func TestChoiceFromRejectsUndeclaredProbabilityKey(t *testing.T) {
+	// An undeclared key in probabilities would land in out.Probabilities
+	// as a T that equals none of the caller's constants: the same silent
+	// garbage as an undeclared choice, one map entry over.
+	type dept string
+	const technical dept = "technical"
+
+	q := Choice[dept]("department", "Which team?", Opts[dept]{technical: nil})
+	res := resultWith(t, "department", `{
+	  "type": "choice",
+	  "choice": "technical",
+	  "probabilities": {"technical": 0.7, "maybee": 0.3},
+	  "confidence": 0.7
+	}`)
+
+	_, err := q.From(res)
+	if !errors.Is(err, ErrUnexpectedOption) {
+		t.Fatalf("From = %v, want ErrUnexpectedOption", err)
+	}
+	if !strings.Contains(err.Error(), `"maybee"`) {
+		t.Errorf("err = %q, want it to name the unexpected option", err)
+	}
+}
+
 func TestSeparateHandlesReadSeparateAnswers(t *testing.T) {
 	type dept string
 

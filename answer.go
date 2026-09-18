@@ -103,6 +103,12 @@ type ChoiceAnswer[T ~string] struct {
 }
 
 // From reads this question's answer, typed as the option type you declared.
+//
+// Both the winning choice and every key in Probabilities are checked against
+// the options the question declared: the compiler checks what you write,
+// only this method can check what the server sends back. An option that was
+// never declared fails with an error wrapping ErrUnexpectedOption rather
+// than decoding into a value that equals none of your constants.
 func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
 	var out ChoiceAnswer[T]
 
@@ -119,12 +125,20 @@ func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
 		return out, fmt.Errorf("typesafe: decoding answer %q: %w", q.id, err)
 	}
 
-	out.Value = T(answer.Choice)
-	out.Confidence = answer.Confidence
+	if _, ok := q.options[T(answer.Choice)]; !ok {
+		return out, fmt.Errorf("%w: answer %q has choice %q", ErrUnexpectedOption, q.id, answer.Choice)
+	}
+
 	out.Probabilities = make(map[T]float64, len(answer.Probabilities))
 	for option, p := range answer.Probabilities {
+		if _, ok := q.options[T(option)]; !ok {
+			return ChoiceAnswer[T]{}, fmt.Errorf("%w: answer %q has probability for %q", ErrUnexpectedOption, q.id, option)
+		}
 		out.Probabilities[T(option)] = p
 	}
+
+	out.Value = T(answer.Choice)
+	out.Confidence = answer.Confidence
 	return out, nil
 }
 

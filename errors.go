@@ -26,6 +26,8 @@ var (
 	ErrNoAnswer  = errors.New("typesafe: no answer for question id")
 	ErrWrongType = errors.New("typesafe: answer type does not match question type")
 
+	ErrUnexpectedOption = errors.New("typesafe: answer holds an option the question did not declare")
+
 	ErrNoAPIKey     = errors.New("typesafe: no API key")
 	ErrNoQuestions  = errors.New("typesafe: no questions")
 	ErrEmptyID      = errors.New("typesafe: empty question id")
