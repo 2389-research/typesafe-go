@@ -19,8 +19,13 @@ type Usage struct {
 // Result holds the answers to one Ask.
 //
 // Read an answer through the question value that asked it — urgent.From(res)
-// — rather than by key. The handle knows its own id and answer type, so a
-// mismatched read will not compile.
+// — rather than by key. Each handle's From fixes the answer's shape at
+// compile time: NoulQuestion.From returns float64 and nothing else, and
+// ChoiceQuestion[T].From returns ChoiceAnswer[T].
+//
+// The compiler cannot check the id, though. Two handles may share an id and
+// disagree about its type, and that read compiles; it fails at read time
+// with ErrWrongType rather than decoding a zero value.
 type Result struct {
 	// Model is the model that performed the evaluation. When you send an
 	// alias like jev-latest, this is the concrete version it resolved to.

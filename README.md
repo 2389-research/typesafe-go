@@ -71,9 +71,14 @@ res, _ := client.Ask(ctx, ticket, urgent)
 p, err := urgent.From(res)
 ```
 
-The id appears once. A `Score` handle cannot read a `Noul` answer, because
-`From` returns a different type for each — the mistake is a compile error,
-not a zero value at runtime.
+The id appears once. The compiler checks the answer's *shape*: a `Score`
+or `Choice` handle's `From` returns its own answer type, so a `Noul` handle
+cannot hand you a `ChoiceAnswer[T]`, or vice versa — that part is a compile
+error, not a zero value at runtime.
+
+The compiler cannot check the id. Two handles can share an id and disagree
+about the type behind it, and that read compiles; it fails at read time
+with `ErrWrongType` rather than decoding a zero value.
 
 ## The three primitives
 

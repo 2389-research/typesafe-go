@@ -6,6 +6,9 @@ package typesafe
 import (
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 )
@@ -239,5 +242,81 @@ func TestRawAnswerRejectsUnknownAndNil(t *testing.T) {
 	var nilResult *Result
 	if _, err := nilResult.RawAnswer("is_urgent"); !errors.Is(err, ErrNoAnswer) {
 		t.Errorf("RawAnswer on nil = %v, want ErrNoAnswer", err)
+	}
+}
+
+// resultDoc returns the doc comment attached to the Result type, with the
+// comment markers stripped, so a test can assert what the comment claims.
+func resultDoc(t *testing.T) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "answer.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing answer.go: %v", err)
+	}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "Result" {
+				continue
+			}
+			// The comment sits above the `type` keyword, so the parser
+			// attaches it to the GenDecl, not the TypeSpec.
+			doc := ts.Doc
+			if doc == nil {
+				doc = gen.Doc
+			}
+			if doc == nil {
+				t.Fatal("Result has no doc comment to check")
+			}
+			return doc.Text()
+		}
+	}
+	t.Fatal("answer.go has no Result type with a doc comment")
+	return ""
+}
+
+func TestResultDocPromisesOnlyTheShapeGuarantee(t *testing.T) {
+	doc := resultDoc(t)
+
+	// The false claim: two handles can share an id and differ in type,
+	// so a mismatched read compiles and fails at read time instead.
+	if strings.Contains(doc, "will not compile") {
+		t.Errorf("Result doc still claims a mismatched read will not compile:\n%s", doc)
+	}
+	// The real guarantee: the handle fixes the answer shape at compile time.
+	if !strings.Contains(doc, "float64") {
+		t.Errorf("Result doc does not state the compile-time shape guarantee:\n%s", doc)
+	}
+	// Where the runtime check lives, for the id-collision case.
+	if !strings.Contains(doc, "ErrWrongType") {
+		t.Errorf("Result doc does not point at ErrWrongType for the id-collision case:\n%s", doc)
+	}
+}
+
+func TestMismatchedReadOfSharedIDFailsAtReadTime(t *testing.T) {
+	// Two handles agree on the id "mood" and disagree on its type. Both
+	// are legal Go, so the mismatched read compiles; ErrWrongType is what
+	// catches it.
+	type tone string
+	asked := Choice[tone]("mood", "?", Opts[tone]{"terse": nil})
+	misread := Noul("mood", "?")
+
+	res := resultWith(t, "mood", `{
+	  "type": "choice",
+	  "choice": "terse",
+	  "probabilities": {"terse": 1.0},
+	  "confidence": 0.9
+	}`)
+
+	if _, err := misread.From(res); !errors.Is(err, ErrWrongType) {
+		t.Fatalf("misread.From = %v, want ErrWrongType", err)
+	}
+	if _, err := asked.From(res); err != nil {
+		t.Fatalf("asked.From through the right handle: %v", err)
 	}
 }
