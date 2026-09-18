@@ -125,6 +125,12 @@ type ChoiceAnswer[T ~string] struct {
 // An answer body missing choice, probabilities, or confidence reports
 // ErrIncompleteAnswer; an empty probabilities map counts as missing, since
 // the API documents it as summing to 1.
+//
+// Both the winning choice and every key in Probabilities are checked against
+// the options the question declared: the compiler checks what you write,
+// only this method can check what the server sends back. An option that was
+// never declared fails with an error wrapping ErrUnexpectedOption rather
+// than decoding into a value that equals none of your constants.
 func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
 	var out ChoiceAnswer[T]
 
@@ -150,12 +156,20 @@ func (q ChoiceQuestion[T]) From(r *Result) (ChoiceAnswer[T], error) {
 		return out, missingField(q.id, "confidence")
 	}
 
-	out.Value = T(*answer.Choice)
-	out.Confidence = *answer.Confidence
+	if _, ok := q.options[T(*answer.Choice)]; !ok {
+		return out, fmt.Errorf("%w: answer %q has choice %q", ErrUnexpectedOption, q.id, *answer.Choice)
+	}
+
 	out.Probabilities = make(map[T]float64, len(answer.Probabilities))
 	for option, p := range answer.Probabilities {
+		if _, ok := q.options[T(option)]; !ok {
+			return ChoiceAnswer[T]{}, fmt.Errorf("%w: answer %q has probability for %q", ErrUnexpectedOption, q.id, option)
+		}
 		out.Probabilities[T(option)] = p
 	}
+
+	out.Value = T(*answer.Choice)
+	out.Confidence = *answer.Confidence
 	return out, nil
 }
 

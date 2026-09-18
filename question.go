@@ -91,7 +91,10 @@ type ChoiceQuestion[T ~string] struct {
 }
 
 // Choice picks one option from a set you define. Declare T as your own string
-// type and the compiler will reject any option the API could not return.
+// type and the compiler will reject any option you write outside it; what the
+// server sends back is checked at read time, where From fails with an error
+// wrapping ErrUnexpectedOption if the answer holds an option the question
+// never declared.
 func Choice[T ~string](id string, instructions Entry, options Opts[T]) ChoiceQuestion[T] {
 	return ChoiceQuestion[T]{id: id, instructions: instructions, options: maps.Clone(options)}
 }

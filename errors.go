@@ -27,6 +27,8 @@ var (
 	ErrWrongType        = errors.New("typesafe: answer type does not match question type")
 	ErrIncompleteAnswer = errors.New("typesafe: answer is missing a required field")
 
+	ErrUnexpectedOption = errors.New("typesafe: answer holds an option the question did not declare")
+
 	ErrNoAPIKey     = errors.New("typesafe: no API key")
 	ErrNoQuestions  = errors.New("typesafe: no questions")
 	ErrNilQuestion  = errors.New("typesafe: nil question")
