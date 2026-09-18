@@ -363,6 +363,59 @@ func TestAskDoesNotRetryValidationFailures(t *testing.T) {
 	}
 }
 
+func TestWithRetryClonesTheCallersStatuses(t *testing.T) {
+	// RetryPolicy.Statuses is a slice, so copying the policy struct alone
+	// would leave the client reading the caller's backing array. Editing an
+	// index in place after New would then silently retune a live client.
+	statuses := make([]int, 1, 4)
+	statuses[0] = http.StatusTooManyRequests
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"message":"slow down"}`)
+			return
+		}
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = io.WriteString(w, `{"message":"teapot"}`)
+	}))
+	defer srv.Close()
+
+	c := testClient(t, srv.URL)
+	c.clock = &fakeClock{now: time.Unix(0, 0)}
+	if err := WithRetry(RetryPolicy{MaxRetries: 2, Statuses: statuses})(c); err != nil {
+		t.Fatalf("WithRetry: %v", err)
+	}
+
+	// The caller is entitled to keep using its slice; the client must not
+	// notice.
+	statuses[0] = http.StatusTeapot
+
+	if !c.retry.Retryable(http.StatusTooManyRequests) {
+		t.Error("client stopped retrying 429: it shares the caller's Statuses array")
+	}
+	if c.retry.Retryable(http.StatusTeapot) {
+		t.Error("client retries 418 after the caller edited its own slice")
+	}
+
+	// The wire behaviour is what the caller actually feels: the server's
+	// 429 is still retried, and the teapot on the second attempt ends the
+	// call because it was never in the client's own status list.
+	_, err := c.Ask(context.Background(), "state", Noul("q", "?"))
+	var apiErr *Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Ask = %v, want a *Error", err)
+	}
+	if apiErr.StatusCode != http.StatusTeapot {
+		t.Errorf("status = %d, want 418", apiErr.StatusCode)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2: the 429 was retried once, then 418 ended the call", calls)
+	}
+}
+
 func TestAskStopsWhenTheBudgetWouldBeExceeded(t *testing.T) {
 	var calls int
 

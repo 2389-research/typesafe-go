@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -156,8 +157,12 @@ func WithHTTPClient(h *http.Client) Option {
 
 // WithRetry replaces the retry policy. Start from DefaultRetryPolicy and
 // adjust; the zero RetryPolicy retries nothing.
+//
+// Statuses is copied, so the caller may keep using the slice it passed:
+// editing it or appending into its spare capacity does not retune the client.
 func WithRetry(p RetryPolicy) Option {
 	return func(c *Client) error {
+		p.Statuses = slices.Clone(p.Statuses)
 		c.retry = p
 		return nil
 	}
